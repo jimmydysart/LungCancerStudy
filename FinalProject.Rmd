@@ -1,0 +1,401 @@
+---
+title: "Pstat 175 Final Project"
+author: "Aidan Baker, Jimmy Dysart, Jacob Gerhard"
+date: "11/28/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(survival)
+library(survminer)
+library(tidyverse)
+library(ggplot2)
+library(MASS)
+library(tidyr)
+```
+# Introduction
+
+For patients with lung cancer, it is important to understand different factors that could influence the survival rate. In 1994, The North Central Cancer Treatment Group (NCCTG) performed a study on advanced lung cancer patients, collecting patient scores on performance of daily activities and comparing it with survival rates of those same lung cancer patients ^[[1](# References)]^. More specifically, researchers collected scores based on three tests: the physician’s rating of the Eastern Cooperative Oncology Group (ECOG) performance scores ^[[2](# References)]^, the physician's assessment of the Karnofsky performance status, and the patient’s assessment of the Karnofsky performance status, all of which are measures of the patient’s ability to care for themselves and perform ordinary daily tasks.
+
+The variables included in the study, as well as their descriptions, are shown in the following table:
+
+| Variable Name |   Variable Type   |                                                                                           Variable Description                                                                                           |
+|:-------------:|:-----------------:|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+|      inst     |   Integer (1-33)  |                                                                                             Institution Code                                                                                             |
+|      time     |  Integer (5-1022) |                                                                                           Survival Time in Days                                                                                          |
+|     status    |   Integer (1,2)   |                                                                                   Censoring Status: 1=Censored, 2=Dead                                                                                   |
+|      age      |  Integer (39-82)  |                                                                                               Age in Years                                                                                               |
+|      Sex      |   Integer (1,2)   |                                                                                     Sex of Subject: 1=Male, 2=Female                                                                                     |
+|    ph.ecog    |   Integer (O-5)   | ECOG performance score as rated by the physician: 0=asymptomatic, 1= symptomatic but completely ambulatory, 2= in bed <50% of the day, 3= in bed > 50% of the day but not bedbound, 4 = bedbound, 5=dead |
+|    ph.karno   |  Integer (0-100)  |                                                                      Karnofsky performance score (bad=0-good=100) rated by physician                                                                     |
+|   pat.karno   |  Integer (0-100)  |                                                                              Karnofsky performance score as rated by patient                                                                             |
+|    meal.cal   | Integer (96-2600) |                                                                                        Calories consumed at meals                                                                                        |
+|    wt.loss    |  Integer (-24-68) |                                                                                  Weight loss in last six months (pounds)                                                                                 |
+
+
+The variables `status` and `time` are used to determine the outcome of each patient as well as how long they participated in the study until they removed themselves from the study (1) or died (2). Other covariates contain information on the physician's assessment of performance status, the patient's assessment of performance status, the patient's identifiers, such as age and sex, and the patient's dietary habits and changes, such as caloric intake and weight change.
+
+The question that motivated the original 1994 study was to determine whether the performance score, as rated by the patient, could provide prognostic information dependent of performance score as rated by the physician. We are analyizing the question of whether the patient knows their own health better than that of the physician.  
+
+
+Below are all of the packages that we will be using to conduct our analysis
+
+```{r echo=T, results='hide', warning=FALSE, include=FALSE}
+library(survival)
+library(survminer)
+library(tidyverse)
+library(ggplot2)
+library(MASS)
+library(tidyr)
+```
+
+In our data, we factored the physician and patient Karnofsky Performance Status such that any result of *at least* 70 is considered completely ambulatory (active=1), while any value below 70 requires some form of assistance (inactive=0). We created this factored mapping based on the descriptions of the Karnofsky Performance Status shown below:
+
+| **Karnofsky Performance Status** | **Description** |
+|:-:|:---:|
+| 100|Normal, no complaints; no evidence of disease |
+| 90|Able to carry on normal activity; minor signs or symptoms of disease |
+| 80|Normal activity with effort, some signs or symptoms of disease |
+| 70|Cares for self but unable to carry on normal activity or to do active work |
+| 60|Requires occasional assistance but is able to care for most of personal needs |
+| 50|Requires considerable assistance and frequent medical care |
+| 40|Disabled; requires special care and assistance |
+| 30|Severely disabled; hospitalization is indicated although death not imminent |
+| 20|Very ill; hospitalization and active supportive care necessary |
+| 10|Moribund |
+| 0|Dead |
+
+We will use the variables `physician` and `patient` to represent their respective results from the Karnofsky Performance Test.
+
+```{r}
+lung = cancer #Renaming dataset as lung 
+#head(lung)
+
+lung <- lung %>%
+  mutate(physician.karno = ifelse(ph.karno >= 70, 1,0)) %>%
+  mutate(patient.karno = ifelse(pat.karno >= 70, 1,0))
+lung <- lung[complete.cases(lung),] # removing data rows with NA values
+
+head(lung)
+
+```
+
+## Kaplan Meier
+
+We began by plotting the Kaplan-Meier curve comparing the survival rates against time for the lung cancer patients in the study.
+
+```{r}
+ 
+my_surv = Surv(lung$time,lung$status)
+my_fit = survfit(my_surv~1)
+plot(my_fit, xlab = 'Time(Days)',ylab='Survival Rate (%)',
+     main='Kaplan Meier Curve of Lung Cancer Patients')
+```
+
+From the plot shown above, we can determine that the survival rate for lung cancer patients is relatively linear at the start until around day 500, when it begins to flatten out and plateau slightly above 0. We can visually estimate that survival rates decrease at a rate of -0.001 per day, or by -10% per 100 days.
+
+## Kaplan Meier of Physician vs Patient
+
+The next step that we decided to take was to similarly evaulate the Kaplan-Meier Curve but this time seperate the two by the physicians and patients Karnofsky performance score.
+
+```{r}
+
+lungfitphysician <- survfit(my_surv~lung$physician, data = lung)
+plot(lungfitphysician, col = c('black','grey'), lty = c('solid',"dashed"), xlab = "Time (Days)", 
+     ylab = "Survival Probability (%)",main = "KM estimate of Survival Function by Physician")
+legend('topright', c('Inactive',"Active"), lty = c('solid',"dashed"), col = c("black", "grey"))
+lungfitphysician
+
+```
+
+```{r}
+lungfitpatient <- survfit(my_surv~lung$patient, data = lung)
+plot(lungfitpatient, col = c('black','grey'), lty = c('solid',"dashed"), xlab = "Time (Days)", 
+     ylab = "Survival Probability (%)", main = "KM estimate of Survival Function by Patient")
+legend('topright', c('Inactive',"Active"), lty = c('solid',"dashed"), col = c("black", "grey"))
+lungfitpatient
+```
+
+
+We then determined the Kaplan-Meier curve for active and inactive Karnofsky Performance Status for both physician and patient results.
+
+Comparing both graphs, it appears that the inactive patients have a much lower survival rate than active patients. This result is expected, since both physicians and patients should be able to accurately determine health and activity status in which poor results would have a lower survival rate and thus higher probability of death. However, the results of the tests as rated by patients in which the patient was inactive, the survival rate drops at a much steeper rate, indicating that patients are much better at determining their own activity status and predicting death.
+
+
+## Clustering Institutions
+
+One of the more unique parts of this data set is the predictor variable "inst" or Institution Code which represents the treatment center that each individual patient stayed at over the study. There are 17 different institutions that were studied. We wanted to look at if there was variation in survival rate based on treatment center.
+
+```{r}
+
+lung90 <- lung %>%
+  mutate(physician.karno = ifelse(ph.karno >= 90, 1,0)) %>%
+  mutate(patient.karno = ifelse(pat.karno >= 90, 1,0))
+
+lung80 <- lung %>%
+  mutate(physician.karno = ifelse(ph.karno >= 80, 1,0)) %>%
+  mutate(patient.karno = ifelse(pat.karno >= 80, 1,0))
+```
+
+```{r}
+Instfit <- coxph(my_surv~ + age + sex + ph.ecog + ph.karno + pat.karno + meal.cal + wt.loss + patient.karno + physician.karno, data = lung80)
+
+Instfit1 <- coxph(my_surv~ + age + sex + ph.ecog + ph.karno + pat.karno + meal.cal + wt.loss + patient.karno + physician.karno + physician.karno:ph.karno + patient.karno:pat.karno , data = lung80, cluster = inst )
+
+summary(Instfit1)
+summary(Instfit)
+
+
+```
+
+
+```{r}
+boxplot(my_surv ~ inst, data = lung, xlab = "Institution Number", ylab = "# of Days Survived", ylim = c(0,600), main = "Box Plot of # of Days Survived at Different Institutions")
+```
+
+It looks like there is a variance in median, institutions 2,4,10 and 26 tend to have their subjects survive longer.
+
+In terms of clustering institution, it can be concluded that there is marginal to null effect between an non-clustered coxph model and a clustered one.
+## Hazard Proportion for ph.ecog, ph.karno, and pat.karno
+
+```{r}
+lungcox <- coxph(my_surv ~lung$ph.ecog, data = lung)
+
+summary(lungcox)
+
+```
+
+The 95% confidence interval for ph.ecog is (1.23,2.07).
+
+```{r}
+lungcox2 <- coxph(my_surv ~ lung$ph.karno, data = lung)
+lungcox2
+
+summary(lungcox2)
+```
+
+The 95% confidence interval for ph.karno is (0.975,1.00).
+
+```{r}
+lungcox3 <- coxph(my_surv ~ pat.karno, data = lung)
+lungcox3
+
+summary(lungcox3)
+```
+
+The 95% confidence interval for pat.karno is (0.969,0.9932).
+
+Looking at the Cox proportional hazards regression model we see that the physician result provides a much larger p-value and shows that the variable is not as significant when it comes to predicting survival. On the other hand, the patients personal Karnofsky performance score was a clear indicator in the model and proved to be significant. It is important to note that ph.ecog has an extremely small p-value which means that it is a significant variable in the coxph model.
+
+## Step AIC Models
+
+
+
+### StepAIC forward selection without clustering institution
+```{r}
+
+my_surv = Surv(lung80$time, lung80$status)
+fit1 <- coxph(my_surv ~ age + sex + ph.ecog + ph.karno + pat.karno+ meal.cal + wt.loss + inst + physician.karno + patient.karno , lung80) 
+fit2 <- coxph(my_surv ~ 1, lung80) 
+stepAIC(fit2,direction="forward",scope=list(upper=fit1,lower=fit2))
+```
+
+### Result(fit w/out cluster of inst):
+```{r}
+# Cut value at 70 result
+coxph(formula = my_surv ~ ph.ecog + sex + inst + wt.loss + ph.karno + 
+    patient.karno, data = lung)
+# Cut value at 80 result
+coxph(formula = my_surv ~ ph.ecog + sex + inst + wt.loss + ph.karno + 
+    pat.karno, data = lung80)
+#Cut value at 90 result
+coxph(formula = my_surv ~ ph.ecog + sex + inst + wt.loss + ph.karno + 
+    pat.karno + patient.karno, data = lung90)
+```
+### StepAIC forward selection with clustering institution
+
+```{r}
+my_surv = Surv(lung90$time, lung90$status)
+fit1 <- coxph(my_surv ~ age + sex + ph.ecog + ph.karno + pat.karno+ meal.cal + wt.loss + inst + physician.karno + patient.karno , lung90, cluster = inst) 
+fit2 <- coxph(my_surv ~ 1, lung90) 
+stepAIC(fit2,direction="forward",scope=list(upper=fit1,lower=fit2))
+```
+
+### Result(fit w/cluster of inst):
+
+```{r}
+# Cut value at 70 result
+
+coxph(formula = my_surv ~ ph.ecog + sex + inst + wt.loss + ph.karno + 
+    patient.karno, data = lung)
+# Cut value at 80 result
+coxph(formula = my_surv ~ ph.ecog + sex + inst + wt.loss + ph.karno + 
+    pat.karno, data = lung80)
+# Cut value at 90 result
+coxph(formula = my_surv ~ ph.ecog + sex + inst + wt.loss + ph.karno + 
+    pat.karno + patient.karno, data = lung90)
+
+```
+
+### Summary
+StepAIC was used to variable select and find the best fit model for the different predictor variables and the survival time of the patients in the research study. The best fit model was with the predictors physician ecog, sex, inst, wt.loss, physician Karnofsky score, and patient Karnofsky score. Interesting to note, this model predicts for physician ecog score, an increase 1 score value increased patient survival rate of 0.838. In addition, this model predicts for patient Karnofsky score the difference between a score of 70+ and less than 70 is -0.45. The coefficient value for the physician tests are positive and the coefficient value for the patient test is negative. There was no difference in the best fit model regardless if institution was clustered or not.
+
+There was no difference between StepAIC models with clustered institutions and those without institutions clustered. However, there was variation between StepAIC models with different cut values for the factor variables patient.karno and physician.karno.
+
+The models with the lowest cut value(70) found that the cut of patient was in the best model, but the cut of physician and was not. In addition, the uncut of patient wasn't in the best model, but the uncut of physician was. 
+
+The middle cut value(80) found that neither of the new factor variables were in the best model, but both uncut variables, pat.karno and ph.karno were in the best model.
+
+The largest cut value(90) found that both uncut variables and the cut version of patient.karno were all in the best model.However, the cut version of physician.karno was not.
+
+What we can conclude is that changing the value we cut the variables ph.karno and pat.karno into factors does have an effect on the best fit coxph model for this data set.
+
+## Log Log Plots
+
+The log-log plot can be used for determining if the proportional hazards model assumptions are met.
+
+We want to look at different mutations of ph.karno and pat.karno to find which cut value (transforming data into factors) allows for the proportional hazards to be met.
+
+
+### Cut at 70
+```{r}
+
+cloglog <- function(x){log(-log(x))}
+
+lungestimate <- survfit(Surv(time,status) ~ physician.karno, data = lung)
+
+ggsurvplot(lungestimate, fun=cloglog,
+legend.labs=c("Karno score <70","Karno score >70"), censor.shape=124, censor.size=1) +
+labs( xlab = 'Time (days)',main = 'Log-Log Plot of Physician', ylab = 'log(-log(Survival Probability))')
+
+lungestimate1 <- survfit(Surv(time,status) ~ patient.karno, data = lung)
+ggsurvplot(lungestimate1, fun=cloglog,
+legend.labs=c("Karno score <70","Karno score >70"), censor.shape=124, censor.size=1,ylim=c(-4,1)) +
+labs( xlab = 'Time (days)',main = 'Log-Log Plot of Physician', ylab = 'log(-log(Survival Probability))')
+
+```
+
+### Cut at 80
+```{r}
+lungestimate80phy <- survfit(Surv(time,status) ~ physician.karno, data = lung80)
+
+ggsurvplot(lungestimate80phy, fun=cloglog,
+legend.labs=c("Karno score <80","Karno score >80"), censor.shape=124, censor.size=1) +
+labs( xlab = 'Time (days)',main = 'Log-Log Plot of Physician', ylab = 'log(-log(Survival Probability))')
+
+lungestimate80pat <- survfit(Surv(time,status) ~ patient.karno, data = lung80)
+ggsurvplot(lungestimate80pat, fun=cloglog,
+legend.labs=c("Karno score <80","Karno score >80"), censor.shape=100, censor.size=1,ylim=c(-4,1)) +
+labs( xlab = 'Time (days)',main = 'Log-Log Plot of Patient', ylab = 'log(-log(Survival Probability))')
+
+```
+
+### Cut at 90
+```{r}
+lungestimate90phy <- survfit(Surv(time,status) ~ physician.karno, data = lung90)
+
+ggsurvplot(lungestimate90phy, fun=cloglog,
+legend.labs=c(" Physician Karno score <90","Physician Karno score >89"), censor.shape=124, censor.size=1) +
+labs( xlab = 'Time (days)',main = 'Log-Log Plot of Physician', ylab = 'log(-log(Survival Probability))')
+
+lungestimate90pat <- survfit(Surv(time,status) ~ patient.karno, data = lung90)
+ggsurvplot(lungestimate90pat, fun=cloglog,
+legend.labs=c("Patient Karno score <90","Patient Karno score >90"), censor.shape=100, censor.size=1,ylim=c(-4,1)) +
+labs( xlab = 'Time (days)',main = 'Log-Log Plot of Patient', ylab = 'log(-log(Survival Probability))')
+
+```
+
+### Log log plot for covariate sex
+```{r}
+lungestimate2 <- survfit(Surv(time,status) ~ sex, data = lung)
+ggsurvplot(lungestimate2, fun=cloglog,
+legend.labs=c("Female","Male"), censor.shape=124, censor.size=1) +
+labs( xlab = 'Time (days)',main = 'Log-Log Plot of Sexes', ylab = 'log(-log(Survival Probability))')
+
+```
+
+```{r}
+lungestimate3 <- survfit(Surv(time,status) ~ ph.ecog, data = lung)
+ggsurvplot(lungestimate3, fun=cloglog,
+legend.labs=c("Ecog Score = 0","Ecog Score = 1", "Ecog Score = 2","Ecog Score = 3"), censor.shape=124, censor.size=1) +
+labs( xlab = 'Time (days)',main = 'Log-Log Plot of Physician Ecog Score', ylab = 'log(-log(Survival Probability))')
+```
+
+```{r}
+lungestimate4 <- survfit(Surv(time,status) ~ph.karno, data = lung)
+plot(lungestimate4, fun = cloglog, xlab = 'time(days)', 
+     ylab = 'log(-log(Survival Probability))', main = 'Log-Log Plot of Karnofsky performance score by Physician')
+```
+
+```{r}
+lungestimate5 <- survfit(Surv(time,status) ~ pat.karno, data = lung)
+plot(lungestimate5, fun = cloglog, xlab = 'time(days)', 
+     ylab = 'log(-log(Survival Probability))', main = 'Log-Log Plot of Karnofsky performance score by Patient')
+```
+### Summary
+Looking at the log-log plot of the physician rated Karnofsky Performance Status, the traces are not parallel, therefore the proportional hazards model assumptions cannot be met for the predictor physician. This essentially means that the physician ratings for the test do not have a large effect on the status of the patient.
+
+Looking at the log-log plot of the patient rated Karnofsky Performance Status, the traces are much more parallel, and we *can* infer that the proportional hazards model assumptions are met for the predictor patient. The patient rated tests are much more accurate in determining the outcome of the patient.
+
+Looking at the log-log plot of the different sexes in the study, it can be concluded that the proportional hazards model assumptions are met for the predictor sex.
+
+Looking at the log-log plot of the different of ph.ecog values in the study, it can be concluded that the proportional hazards model assumptions are not met for the predictor ph.ecog.
+
+The log-log plot for the different cuts found that the only plot that passed the parallel line test and there means we can assume proportional hazard model assumptions are met is the cut at 80. Therefore, we will use the cut at 80 as out main coxph model to help us draw conclusions.
+## Cox Zph
+
+Using the Cox ZPH model, a goodness of fit test, we can determine if the residuals change with time and if the PH assumptions are “likely” violated. 
+
+
+```{r}
+
+coxliver <- coxph(Surv(time,status)~ physician.karno, data = lung80)
+phtest <- cox.zph(coxliver)
+phtest
+ggcoxzph(phtest)
+```
+
+```{r}
+
+coxliver1 <- coxph(Surv(time,status)~ patient.karno, data = lung80)
+phtest1 <- cox.zph(coxliver1)
+phtest1
+ggcoxzph(phtest1)
+```
+
+We performed two Cox ZPH models, one with the physician Karnofsky performance status’ (KPS) and the other with the patient Karnofsky performance status’(KPS). 
+
+From the Cox ZPH of the physician KPS, we found a p-value of 0.0049. This p-value tells us that we reject the null hypothesis that the physician KPS residuals do not change with time. This means that the physician KPS residuals change with time and the ph assumptions of the physician KPS are likely violated. This is in agreement with our log-log plot for physician KPS.
+
+From the Cox ZPH of the patient KPS, we found a p-value of 0.068. This p-value tells us that we fail to reject the null hypothesis that the patient KPS residuals do not change with time. This means that the patient KPS residuals do not change with time and the ph assumptions of the patient KPS are likely not violated. This is in agreement with our log-log plot for patient KPS.
+
+# Conclusion 
+
+After performing analysis on the differences between the physician and patient rated Karnofsky Performance Status results, we have determined that patients are much more accurate in determining their wellness status, and can, to an extent, predict their survival rates based off of their responses to the Karnofsky Performance Test. On the other hand, the physician KPS had a neglilable effect on the survival rate and proved to be a poor predictor. Lung cancer patient questionnaires can provide important information regarding the prognostics of their disease. Patient results can be an important and influential practice to implement when diagnosing and treating lung cancer.
+
+# References
+
+1. Loprinzi CL. Laurie JA. Wieand HS. Krook JE. Novotny PJ. Kugler JW. Bartel J. Law M. Bateman M. Klatt NE. et al. Prospective evaluation of prognostic variables from patient-completed questionnaires. North Central Cancer Treatment Group. Journal of Clinical Oncology. 12(3):601-7, 1994. https://pubmed.ncbi.nlm.nih.gov/8120560/
+
+2. https://ecog-acrin.org/resources/ecog-performance-status/
+
+3. Therneau T (2022). A Package for Survival Analysis in R. R package version 3.4-0, https://CRAN.R-project.org/package=survival
+
+
+
+
+
+
+
+
+
+
+
+
+
